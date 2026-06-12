@@ -2,6 +2,8 @@
 
 import streamlit as st
 
+from src.pdf_loader import PDFExtractionError, extract_pdf_pages
+
 
 st.set_page_config(
     page_title="RAG PDF Question Answering Assistant",
@@ -16,10 +18,26 @@ uploaded_file = st.file_uploader(
     "Choose a PDF file",
     type=["pdf"],
     accept_multiple_files=False,
-    help="PDF processing and question answering will be added in later milestones.",
+    help="Upload one PDF to extract and preview its text.",
 )
 
 if uploaded_file is not None:
     st.success(f"Uploaded: {uploaded_file.name}")
-    st.info("PDF text extraction is not implemented yet. That comes in Milestone 2.")
 
+    try:
+        pages = extract_pdf_pages(uploaded_file)
+    except PDFExtractionError as error:
+        st.error(str(error))
+    else:
+        st.info(f"Extracted {len(pages)} page(s).")
+        st.caption(f"Debug: number of extracted pages = {len(pages)}")
+
+        st.subheader("Text preview")
+        preview_pages = pages[:3]
+        for page in preview_pages:
+            preview = page["text"][:500].strip()
+            st.markdown(f"**Page {page['page_number']}**")
+            st.text(preview or "No extractable text found on this page.")
+
+        if len(pages) > len(preview_pages):
+            st.caption("Preview limited to the first 3 pages and 500 characters per page.")
