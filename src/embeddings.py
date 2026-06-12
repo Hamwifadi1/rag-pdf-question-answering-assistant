@@ -104,3 +104,38 @@ def generate_chunk_embeddings(
         "chunk_count": len(chunks),
         "embedding_dimension": embedding_dimension,
     }
+
+
+def generate_text_embedding(
+    text: str,
+    model: EmbeddingModel | None = None,
+) -> list[float]:
+    """Generate one normalized embedding for a question or other text."""
+    clean_text = text.strip()
+    if not clean_text:
+        raise EmbeddingError("The question cannot be empty.")
+
+    if model is None:
+        model = load_embedding_model()
+
+    try:
+        encoded = model.encode(
+            [clean_text],
+            convert_to_numpy=True,
+            normalize_embeddings=True,
+            show_progress_bar=False,
+        )
+    except Exception as error:
+        raise EmbeddingError(
+            "The local embedding model could not embed the question."
+        ) from error
+
+    try:
+        vectors = encoded.tolist()
+    except AttributeError:
+        vectors = [list(vector) for vector in encoded]
+
+    if len(vectors) != 1 or not vectors[0]:
+        raise EmbeddingError("The model returned an invalid question embedding.")
+
+    return vectors[0]

@@ -5,6 +5,7 @@ import streamlit as st
 from src.chunker import chunk_pages
 from src.embeddings import EmbeddingError, generate_chunk_embeddings
 from src.pdf_loader import PDFExtractionError, extract_pdf_pages
+from src.vector_store import FAISSVectorStore, VectorStoreError
 
 
 st.set_page_config(
@@ -25,6 +26,10 @@ uploaded_file = st.file_uploader(
 
 if uploaded_file is not None:
     st.success(f"Uploaded: {uploaded_file.name}")
+    upload_signature = (uploaded_file.name, uploaded_file.size)
+    if st.session_state.get("indexed_upload") != upload_signature:
+        st.session_state.pop("vector_store", None)
+        st.session_state.pop("indexed_upload", None)
 
     try:
         pages = extract_pdf_pages(uploaded_file)
@@ -65,16 +70,22 @@ if uploaded_file is not None:
             st.subheader("Embedding test")
             st.caption(
                 "Embeddings run locally with all-MiniLM-L6-v2. The first run "
-                "downloads the free model; FAISS storage is not implemented yet."
+                "downloads the free model."
             )
-            if st.button("Generate local embeddings", type="primary"):
-                with st.spinner("Loading the local model and generating embeddings..."):
+            if st.button("Build local FAISS index", type="primary"):
+                with st.spinner("Generating embeddings and building FAISS..."):
                     try:
                         embedding_result = generate_chunk_embeddings(chunks)
-                    except EmbeddingError as error:
+                        vector_store = FAISSVectorStore.from_embeddings(
+                            chunks,
+                            embedding_result,
+                        )
+                    except (EmbeddingError, VectorStoreError) as error:
                         st.error(str(error))
                     else:
-                        st.success("Local embeddings generated successfully.")
+                        st.session_state["vector_store"] = vector_store
+                        st.session_state["indexed_upload"] = upload_signature
+                        st.success("Local embeddings and FAISS index generated successfully.")
                         st.write("Embedding model: all-MiniLM-L6-v2")
                         st.write(
                             "Number of chunks sent for embedding: "
@@ -84,3 +95,43 @@ if uploaded_file is not None:
                             "Embedding vector dimension: "
                             f"{embedding_result['embedding_dimension']}"
                         )
+                        st.write(
+                            "Number of vectors stored in FAISS: "
+                            f"{vector_store.vector_count}"
+                        )
+
+            vector_store = st.session_state.get("vector_store")
+            if vector_store is not None:
+                st.info(f"FAISS index contains {vector_store.vector_count} vector(s).")
+                st.subheader("Retrieval test")
+                question = st.text_input("Ask a question to retrieve relevant chunks")
+
+                if st.button("Retrieve top 4 chunks"):
+                    with st.spinner("Embedding question and searching FAISS..."):
+                        try:
+                            retrieval = vector_store.retrieve(question, top_k=4)
+                        except (EmbeddingError, VectorStoreError) as error:
+                            st.error(str(error))
+                        else:
+                            retrieved_chunks = retrieval["chunks"]
+                            st.success(f"Retrieved {len(retrieved_chunks)} chunk(s).")
+                            st.write(
+                                "Question embedding dimension: "
+                                f"{retrieval['question_embedding_dimension']}"
+                            )
+                            st.write(
+                                "Retrieved chunk IDs: "
+                                f"{[chunk['chunk_id'] for chunk in retrieved_chunks]}"
+                            )
+                            st.write(
+                                "Retrieved source pages: "
+                                f"{[chunk['page_number'] for chunk in retrieved_chunks]}"
+                            )
+
+                            for chunk in retrieved_chunks:
+                                st.markdown(
+                                    f"**Chunk {chunk['chunk_id']} - "
+                                    f"Page {chunk['page_number']} - "
+                                    f"Similarity {chunk['similarity_score']:.4f}**"
+                                )
+                                st.text(chunk["text"][:300])
