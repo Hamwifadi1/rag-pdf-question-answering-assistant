@@ -1,6 +1,4 @@
 streamlit
 pypdf
 faiss-cpu
-openai
-python-dotenv
-
+sentence-transformers
